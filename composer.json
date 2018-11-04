@@ -1,0 +1,12 @@
+{
+    "name": "naseemsarwar/myamazon",
+    "authors": [
+        {
+            "name": "inazeem",
+            "email": "naseem@iiadigital.co.uk"
+        }
+    ],
+    "require": {
+    	"marcl/amazonproductapi": "^3.0"
+    }
+}
