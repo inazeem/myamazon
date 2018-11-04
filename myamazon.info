@@ -1,0 +1,13 @@
+name = My amazon
+description = creating amazon store. This module is written by Naseem Sarwar.
+core = 7.x
+version = 1.0
+package = Custom NS
+files[] = vendor/autoload.php
+files[] = myamazon.module
+files[] = myamazon.install
+; Information added by Drupal.org packaging script on 2018-04-17
+version = "7.x-1.7"
+core = "7.x"
+project = "myamazon"
+datestamp = "1523992385"
