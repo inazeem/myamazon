@@ -1,0 +1,188 @@
+<?php
+
+require dirname(__FILE__).'/vendor/autoload.php';
+
+require dirname(__FILE__).'/vendor/marcl/amazonproductapi/src/AmazonUrlBuilder.php';
+
+require dirname(__FILE__).'/vendor/marcl/amazonproductapi/src/AmazonAPI.php';
+
+
+
+function myamazon_menu() {
+
+    $items = array();
+
+    $items['admin/settings/myamazon'] = array(
+        'title' => 'myamazon Module Settings',
+        'description' => 'Description of your On this date settings page',
+        'page callback' => 'drupal_get_form',
+        'page arguments' => array('myamazon_admin'),
+        'access arguments' => array('administer life cover settings'),
+        'type' => MENU_NORMAL_ITEM,
+    );
+
+    $items['myamazon'] = array(
+        'title' => 'myamazon main function',
+        'description' => 'Description of your On this date settings page',
+        'page callback' => array('myamazon_main'),
+        //'page arguments' => array('myamazon_main'),
+        'access arguments' => array('administer life cover settings'),
+        'type' => MENU_NORMAL_ITEM,
+    );
+
+    return $items;
+}
+
+function myamazon_admin() {
+
+
+    $form = array();
+
+    $form['myamazon_amazon_key'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Amazon AWS Access Key ID'),
+        '#default_value' => variable_get('myamazon_amazon_key'),
+        '#description' => t("You must sign up for an Amazon AWS account to use the Product Advertising Service. See the AWS home page for information and a registration form."),
+        '#required' => TRUE,
+    );
+
+    $form['myamazon_secret_key'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Amazon AWS Secret Access Key'),
+        '#default_value' => variable_get('myamazon_secret_key'),
+        '#description' => t("You must sign up for an Amazon AWS account to use the Product Advertising Service. See the AWS home page for information and a registration form."),
+        '#required' => TRUE,
+    );
+
+
+
+    $form['associate_country'] = array(
+        '#type' => 'select',
+        '#title' => t('Please Select Associate Locale'),
+        '#default_value' => variable_get('associate_country', ''),
+        '#description' => t("Enter your United Kingdom associate ID to receive referral bonuses when shoppers purchase Amazon products via your site. "),
+        '#required' => TRUE,
+        '#options' => array('0'=> t('Select a country'),'br' => t('Brazil'),
+            'ca' =>	t('Canada'),
+            'cn' =>	t('China'),
+            'fr' =>	t('France'),
+            'de' =>	t('Germany'),
+            'in' =>	t('India'),
+            'it' =>	t('Italy'),
+            'jp' =>	t('Japan'),
+            'mx' =>	t('Mexico'),
+            'es' =>	t('Spain'),
+            'uk' =>	t('United kingdom'),
+            'us' =>	t('United States')),
+
+    );
+
+    $form['myamazon_associate_key'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Associate ID'),
+        '#default_value' => variable_get('myamazon_associate_key', ''),
+        '#description' => t("Enter your associate ID to receive referral bonuses when shoppers purchase Amazon products via your site. "),
+        '#required' => TRUE,
+    );
+
+
+
+    return system_settings_form($form);
+}
+
+function myamazon_main(){
+
+
+    $name = 'Keywords';
+    $vocab = taxonomy_vocabulary_machine_name_load($name);
+    $tree = taxonomy_get_tree($vocab->vid);
+
+    $rand =  array_rand($tree);
+
+    $keywords = $tree[$rand]->name;
+
+    // Keep these safe
+    $keyId = variable_get('myamazon_amazon_key');
+    $secretKey = variable_get('myamazon_secret_key');
+    $associateId = variable_get('myamazon_associate_key');
+    $associate_country = variable_get('associate_country');
+
+    // Setup a new instance of the AmazonUrlBuilder with your keys
+    $urlBuilder = new AmazonUrlBuilder(
+        $keyId,
+        $secretKey,
+        $associateId,
+        $associate_country
+    );
+
+    // Setup a new instance of the AmazonAPI and define the type of response
+    $amazonAPI = new AmazonAPI($urlBuilder, 'simple');
+
+    $items = $amazonAPI->ItemSearch($keywords,'All');
+
+
+    foreach($items as $item){
+
+        $query = new EntityFieldQuery();
+        $query->entityCondition('entity_type', 'node')
+            ->entityCondition('bundle', 'product')
+            ->fieldCondition('field_asin', 'value', $item['asin'],'=')
+            ->range(0, 1);
+
+        $asin_count = $query->execute();
+
+        if($asin_count > 0) {
+
+            $body = '<ul>';
+            foreach ($item['feature'] as $value) {
+                $body .= '<li>' . $value . '</li>';
+            }
+
+            $body .= '</ul>';
+
+            $node = new stdClass();
+            $node->title = $item['title'];
+
+            $node->type = "product";
+            // Sets some defaults. Invokes hook_prepare() and hook_node_prepare().
+            node_object_prepare($node);
+            // Or e.g. 'en' if locale is enabled.
+            $node->language = LANGUAGE_NONE;
+            $node->uid = 1;
+            // Status is 1 or 0; published or not.
+            $node->status = 1;
+            // Promote is 1 or 0; promoted to front page or not.
+            $node->promote = 1;
+            // Comment is 0, 1, 2; 0 = disabled, 1 = read only, or 2 = read/write.
+
+            /**
+             * Getting remote Images
+             *
+             */
+            ini_set('allow_url_fopen', 'On');
+            $file_name = $item['asin'];
+            $image = file_get_contents($item['largeImage']); // string
+            $file = file_save_data($image, 'public://'.$file_name.'.jpg',FILE_EXISTS_REPLACE);
+
+            // URL Text field
+            $node->body[$node->language][] = array('value'=> $body, 'format' => 'full_html');
+            $node->field_url[$node->language][]['value'] = $item['url'];
+            $node->field_price[$node->language][]['value'] = $item['rrp'];
+            $node->field_large_image[$node->language][]['fid'] = $file->fid;
+            $node->field_asin[$node->language][]['value'] = $item['asin'];
+
+            if($item['rrp'] > 0) {
+                $node = node_submit($node); // Prepare node for saving
+                node_save($node);
+            }
+        }
+
+    }
+
+}
+
+
+function myamazon_cron(){
+    myamazon_main();
+}
+
